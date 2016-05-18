@@ -15,10 +15,14 @@
 ##          DEPENDS_KERNEL_INITRAMFS to acquire the initramfs.
 ## @useflag ramdisk_image_compression Compression of the ramdisk image. Set to
 ##          none by default.
-## @useflag kernel_dtb Name of the compiled Device tree source (dts).
-## @useflag kernel_dtc Whether to use the linux device tree compiler (dtc).
+## @useflag kernel_dtb Name of the (already compiled) Device tree binary (dtb)
+##          to be installed into boot directory. kernel_dts makes this
+##          unnecessary.
+## @useflag kernel_dtc Whether to use the device tree compiler (dtc) from the
+##          kernel source tree being built. If not set, dtc from oe-lite recipe
+##          will be used.
 ## @useflag kernel_dtc_flags Flags for the device tree compiler (dtc).
-## @useflag kernel_dtc_source Device tree source (dts).
+## @useflag kernel_dts Name of the Device tree source (dts) to be compiled
 ##
 ## @var DEPENDS_KERNEL_INITRAMFS Set to the name of the package providing the
 ##      initramfs.
@@ -30,15 +34,12 @@
 ## @var KERNEL_IMAGE_DEPLOY_FILE The full filename of the deployed kernel.
 ## @var KERNEL_IMAGE_DEPLOY_LINK The link name of the symlink to
 ##      KERNEL_IMAGE_DEPLOY_FILE.
-## @var KERNEL_DEVICETREE Location of the compiled devicetree.
-## @var KERNEL_DEVICETREE_FILENAME Name of the compiled devicetree
-## @var KERNEL_DEVICETREE_DEPLOY_NAME name of the deployed devicetree. Used in
-##      KERNEL_DEVICETREE_DEPLOY_FILE and in
-##      KERNEL_DEVICETREE_DEPLOY_LINK.
-## @var KERNEL_DEVICETREE_DEPLOY_EXT Extention of the deployed kernel.
-## @var KERNEL_DEVICETREE_DEPLOY_FILE The full filename of the deployed kernel.
-## @var KERNEL_DEVICETREE_DEPLOY_LINK The link name of the symlink to
-##      KERNEL_DEVICETREE_DEPLOY_FILE.
+## @var KERNEL_DTB_DIR Location of the compiled devicetree.
+## @var KERNEL_DTB_FILE Name of the compiled devicetree
+## @var KERNEL_DTB_DEPLOY_NAME name of the deployed devicetree. Used in
+##      KERNEL_DTB_DEPLOY_FILE and in
+##      KERNEL_DTB_DEPLOY_LINK.
+## @var KERNEL_DTB_DEPLOY_EXT Extention of the deployed device tree binary.
 
 DESCRIPTION ?= "Linux kernel"
 LICENSE ?= "GPL"
@@ -238,30 +239,39 @@ UIMAGE_KERNEL_OUTPUT = ""
 UIMAGE_KERNEL_OUTPUT:USE_kernel_uimage = "arch/${KERNEL_ARCH}/boot/uImage"
 KERNEL_OUTPUT += "${UIMAGE_KERNEL_OUTPUT}"
 
-CLASS_FLAGS += "kernel_dtb kernel_dtc kernel_dtc_flags kernel_dtc_source"
+CLASS_FLAGS += "kernel_dtb kernel_dtc kernel_dtc_flags kernel_dts"
 DEFAULT_USE_kernel_dtc_flags = "-R 8 -p 0x3000"
-DEFAULT_USE_kernel_dtc_source = "arch/${KERNEL_ARCH}/boot/dts/${MACHINE}.dts"
+DEFAULT_USE_kernel_dts = "arch/${KERNEL_ARCH}/boot/dts/${MACHINE}.dts"
 
+KERNEL_DTB_DIR = "arch/${KERNEL_ARCH}/boot/dts/"
 addhook kernel_devicetree_init to post_recipe_parse after set_useflags
 def kernel_devicetree_init(d):
-    kernel_dtc = d.get('USE_kernel_dtc')
     kernel_dtb = d.get('USE_kernel_dtb')
-    if kernel_dtc and kernel_dtc != 0:
-	kernel_dtc_source = d.get('USE_kernel_dtc_source')
-	dts = os.path.basename(kernel_dtc_source)
+    kernel_dtc = d.get('USE_kernel_dtc')
+    kernel_dts = d.get('USE_kernel_dts')
+    if (kernel_dtc and kernel_dts != 0) or kernel_dts != 0:
+	kernel_dts = d.get('USE_kernel_dts')
+        dts_dir,dts = os.path.split(kernel_dts)
 	(dts_name, dts_ext) = os.path.splitext(dts)
 	if dts_ext != '.dts':
 	    dts_name = dts
-	d.set('KERNEL_DEVICETREE', dts_name + ".dtb")
+	d.set('KERNEL_DTB_FILE', dts_name + ".dtb")
+        if kernel_dts != d.get('KERNEL_DTB_DIR'):
+            d.set('KERNEL_DTB_DIR', dts_dir)
     elif kernel_dtb:
-	d.set('KERNEL_DEVICETREE', kernel_dtb)
+	d.set('KERNEL_DTB_FILE', kernel_dtb)
     else:
-	d.set('KERNEL_DEVICETREE', '')
+	d.set('KERNEL_DTB_FILE', '')
 
-KERNEL_COMPILE_POSTFUNCS:>USE_kernel_dtc = " do_compile_kernel_dtc"
+KERNEL_COMPILE_POSTFUNCS:>USE_kernel_dtc += " do_compile_kernel_dtc"
 do_compile_kernel_dtc() {
     scripts/dtc/dtc -I dts -O dtb ${USE_kernel_dtc_flags} \
-	-o ${KERNEL_DEVICETREE} ${USE_kernel_dtc_source}
+	-o ${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE} ${USE_kernel_dts}
+}
+
+KERNEL_COMPILE_POSTFUNCS:>USE_kernel_dts += " do_compile_kernel_dts"
+do_compile_kernel_dts() {
+	oe_runmake "${KERNEL_DTB_FILE}"
 }
 
 CLASS_FLAGS += "kernel_perf"
@@ -293,8 +303,8 @@ do_install_kernel () {
     install -d ${D}${bootdir}
     install -m 0644 ${KERNEL_IMAGE} ${D}${bootdir}/${KERNEL_IMAGE_FILENAME}
 
-    if [ -n "${KERNEL_DEVICETREE}" ] ; then
-	install -m 0644 ${KERNEL_DEVICETREE} ${D}${bootdir}/${KERNEL_DEVICETREE_FILENAME}
+    if [ -n "${KERNEL_DTB_FILE}" ] ; then
+	install -m 0644 ${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE} ${D}${bootdir}/${KERNEL_DTB_FILE}
     fi
 
     if (grep -q -i -e '^CONFIG_MODULES=y$' .config); then
@@ -339,7 +349,7 @@ PACKAGES = "${PN} ${PN}-vmlinux ${PN}-dev ${PN}-modules ${PN}-dtb ${PN}-firmware
 
 FILES_${PN} = "${bootdir}/${KERNEL_IMAGE_FILENAME}"
 FILES_${PN}:USE_kernel_uimage = "${bootdir}/uImage"
-FILES_${PN}-dtb = "${bootdir}/${KERNEL_DEVICETREE_FILENAME}"
+FILES_${PN}-dtb = "${bootdir}/${KERNEL_DTB_FILE}"
 FILES_${PN}-vmlinux = "${bootdir}/vmlinux"
 FILES_${PN}-dev = "${bootdir}/System.map ${bootdir}/Module.symvers \
     ${bootdir}/config ${kernelsrcdir}"
@@ -368,17 +378,18 @@ addtask deploy after install before build
 do_deploy[dirs] = "${IMAGE_DEPLOY_DIR} ${S}"
 REBUILD ?= "1"
 
+KERNEL_DTB_DEPLOY_FILE = "${KERNEL_DTB_FILE}"
 do_deploy() {
     install -m 0644 ${KERNEL_IMAGE} \
 	${IMAGE_DEPLOY_DIR}/${KERNEL_IMAGE_DEPLOY_FILE}
     md5sum <${KERNEL_IMAGE} \
 	>${IMAGE_DEPLOY_DIR}/${KERNEL_IMAGE_DEPLOY_FILE}.md5
 
-    if [ -n "${KERNEL_DEVICETREE}" ] ; then
-	install -m 0644 "${KERNEL_DEVICETREE}" \
-	    ${IMAGE_DEPLOY_DIR}/${KERNEL_DEVICETREE_DEPLOY_FILE}
-	md5sum <"${KERNEL_DEVICETREE}" \
-	    >${IMAGE_DEPLOY_DIR}/${KERNEL_DEVICETREE_DEPLOY_FILE}.md5
+    if [ -n "${KERNEL_DTB_FILE}" ] ; then
+	install -m 0644 "${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE}" \
+	    ${IMAGE_DEPLOY_DIR}/${KERNEL_DTB_DEPLOY_FILE}
+	md5sum <"${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE}" \
+	    >${IMAGE_DEPLOY_DIR}/${KERNEL_DTB_DEPLOY_FILE}.md5
     fi
 
     cd ${IMAGE_DEPLOY_DIR}
@@ -389,12 +400,12 @@ do_deploy() {
 		   ${KERNEL_IMAGE_DEPLOY_LINK}$ext
 	done
     fi
-    if [ -n "${KERNEL_DEVICETREE}" -a \
-	 -n "${KERNEL_DEVICETREE_DEPLOY_LINK}" ] ; then
+    if [ -n "${KERNEL_DTB_FILE}" -a \
+	 -n "${KERNEL_DTB_DEPLOY_LINK}" ] ; then
 	for ext in "" ".md5"; do
-	    rm -f  ${KERNEL_DEVICETREE_DEPLOY_LINK}$ext
-	    ln -sf ${KERNEL_DEVICETREE_DEPLOY_FILE}$ext \
-		   ${KERNEL_DEVICETREE_DEPLOY_LINK}$ext
+	    rm -f  ${KERNEL_DTB_DEPLOY_LINK}$ext
+	    ln -sf ${KERNEL_DTB_DEPLOY_FILE}$ext \
+		   ${KERNEL_DTB_DEPLOY_LINK}$ext
 	done
     fi
 }
