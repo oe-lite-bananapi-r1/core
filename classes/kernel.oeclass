@@ -256,8 +256,6 @@ def kernel_devicetree_init(d):
 	if dts_ext != '.dts':
 	    dts_name = dts
 	d.set('KERNEL_DTB_FILE', dts_name + ".dtb")
-        if kernel_dts != d.get('KERNEL_DTB_DIR'):
-            d.set('KERNEL_DTB_DIR', dts_dir)
     elif kernel_dtb:
 	d.set('KERNEL_DTB_FILE', kernel_dtb)
     else:
@@ -385,7 +383,7 @@ do_deploy() {
     md5sum <${KERNEL_IMAGE} \
 	>${IMAGE_DEPLOY_DIR}/${KERNEL_IMAGE_DEPLOY_FILE}.md5
 
-    if [ -n "${KERNEL_DTB_FILE}" ] ; then
+    if [ -n "${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE}" ] ; then
 	install -m 0644 "${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE}" \
 	    ${IMAGE_DEPLOY_DIR}/${KERNEL_DTB_DEPLOY_FILE}
 	md5sum <"${KERNEL_DTB_DIR}/${KERNEL_DTB_FILE}" \
