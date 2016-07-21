@@ -47,6 +47,10 @@
 ## inherit u-boot
 ## SRC_URI = "git://...../u-boot.git"
 ## ----
+##
+## @var UBOOT_BOOT_SCRIPT_FILE Filename for deployed boot script
+## @var UBOOT_BOOT_SCRIPT_COMMANDS File with u-boot env commands to be converted to
+##      boot script
 
 DESCRIPTION ?= "Das U-Boot -- the Universal Boot Loader"
 HOMEPAGE ?= "http://www.denx.de/wiki/U-Boot"
@@ -119,8 +123,13 @@ do_configure () {
     oe_runmake ${USE_uboot_config}
 }
 
+UBOOT_BOOT_SCRIPT_FILE = "boot.scr"
+
 do_compile () {
     oe_runmake ${UBOOT_IMAGE}
+    if [ -n ${UBOOT_BOOT_SCRIPT_FILE} -a -n ${UBOOT_BOOT_SCRIPT_COMMANDS} ] ; then
+        ./tools/mkimage -T script -C none -n 'OE-lite BananaPi R1 boot script' -d  ${UBOOT_BOOT_SCRIPT_COMMANDS} ${UBOOT_BOOT_SCRIPT_FILE}
+    fi
 }
 
 # Support checking the u-boot image size
@@ -133,10 +142,15 @@ do_install () {
     install -d ${D}${bootdir}
     install -m 0644 ${UBOOT_IMAGE_FILENAME} ${D}${bootdir}
     install -m 0644 ${UBOOT_IMAGE_BASE} ${D}${bootdir}
+    if [ -a ${UBOOT_BOOT_SCRIPT_FILE} ] ; then
+        install -m 0644 ${UBOOT_BOOT_SCRIPT_FILE} \
+            ${D}${bootdir}
+    fi
 }
 
-PACKAGES = "${PN} ${PN}-elf"
+PACKAGES = "${PN} ${PN}-elf ${PN}-bootscript"
 FILES_${PN} = "${bootdir}/${UBOOT_IMAGE_FILENAME}"
+FILES_${PN}-bootscript = "${bootdir}/${UBOOT_BOOT_SCRIPT_FILE}"
 FILES_${PN}-elf = "${bootdir}/${UBOOT_IMAGE_BASE}"
 
 PROVIDES_${PN} = "u-boot"
